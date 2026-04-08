@@ -161,6 +161,25 @@ textarea {
   font-size: 0.88rem;
 }
 
+.file-controls {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.file-status {
+  margin: 0;
+  min-height: 1.3rem;
+  color: #d7e5fb;
+  font-size: 0.82rem;
+}
+
 .hero-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -712,6 +731,7 @@ textarea {
   }
 
   .filters > *,
+  .file-actions > *,
   .form-actions > *,
   .expense-actions > * {
     width: 100%;

@@ -1,5 +1,3 @@
-const STORAGE_KEY = "expense-tracker-items";
-
 const expenseForm = document.getElementById("expenseForm");
 const expenseIdInput = document.getElementById("expenseId");
 const titleInput = document.getElementById("title");
@@ -14,6 +12,10 @@ const expenseList = document.getElementById("expenseList");
 const filterCategory = document.getElementById("filterCategory");
 const searchInput = document.getElementById("searchInput");
 const expenseItemTemplate = document.getElementById("expenseItemTemplate");
+const openFileButton = document.getElementById("openFileButton");
+const saveFileButton = document.getElementById("saveFileButton");
+const fileStatusElement = document.getElementById("fileStatus");
+const importFileInput = document.getElementById("importFileInput");
 
 const totalSpentElement = document.getElementById("totalSpent");
 const totalEntriesElement = document.getElementById("totalEntries");
@@ -41,22 +43,28 @@ const CHART_COLORS = [
   "#ffd86b"
 ];
 
-let expenses = loadExpenses();
+let expenses = [];
 let editingId = null;
+let fileHandle = null;
+let activeFileName = "";
 
 initialize();
 
-function initialize() {
+async function initialize() {
   dateInput.value = getTodayInputValue();
   renderApp();
+  renderFileStatus();
 
   expenseForm.addEventListener("submit", handleSubmit);
   cancelEditButton.addEventListener("click", resetForm);
   filterCategory.addEventListener("change", renderApp);
   searchInput.addEventListener("input", renderApp);
+  openFileButton.addEventListener("click", handleOpenFile);
+  saveFileButton.addEventListener("click", handleSaveButton);
+  importFileInput.addEventListener("change", handleImportSelection);
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   event.preventDefault();
 
   const expense = {
@@ -79,9 +87,61 @@ function handleSubmit(event) {
     expenses.unshift(expense);
   }
 
-  persistExpenses();
+  await persistExpenses();
   resetForm();
   renderApp();
+}
+
+async function handleOpenFile() {
+  if (supportsFileSystemAccess()) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [getJsonPickerType()],
+        excludeAcceptAllOption: true,
+        multiple: false
+      });
+
+      fileHandle = handle;
+      activeFileName = handle.name;
+      expenses = await readExpensesFromHandle(handle);
+      resetForm();
+      renderApp();
+      renderFileStatus(`Loaded ${activeFileName}. New edits will save back to this file.`);
+      return;
+    } catch (error) {
+      handleFileOperationError(error, "Open cancelled.");
+      return;
+    }
+  }
+
+  importFileInput.click();
+}
+
+async function handleSaveButton() {
+  await persistExpenses({ forcePicker: true });
+}
+
+async function handleImportSelection(event) {
+  const [file] = event.target.files;
+  importFileInput.value = "";
+
+  if (!file) {
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const parsedExpenses = parseExpensesJson(text);
+    expenses = parsedExpenses;
+    fileHandle = null;
+    activeFileName = file.name;
+    resetForm();
+    renderApp();
+    renderFileStatus(`Loaded ${activeFileName}. Use Save JSON to download your updated file.`);
+  } catch (error) {
+    console.error("Unable to import expenses.", error);
+    renderFileStatus("That file could not be read. Please choose a valid JSON file.");
+  }
 }
 
 function renderApp() {
@@ -356,9 +416,9 @@ function startEdit(id) {
   titleInput.focus();
 }
 
-function deleteExpense(id) {
+async function deleteExpense(id) {
   expenses = expenses.filter((expense) => expense.id !== id);
-  persistExpenses();
+  await persistExpenses();
 
   if (editingId === id) {
     resetForm();
@@ -376,22 +436,107 @@ function resetForm() {
   cancelEditButton.classList.add("hidden");
 }
 
-function persistExpenses() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+async function persistExpenses(options = {}) {
+  try {
+    if (supportsFileSystemAccess()) {
+      await saveExpensesToHandle(options.forcePicker);
+      renderFileStatus(`Saved ${activeFileName}.`);
+      return true;
+    }
+
+    downloadExpensesFile();
+    renderFileStatus(`Downloaded ${getDownloadFileName()}. Keep this file to retain your data.`);
+    return true;
+  } catch (error) {
+    handleFileOperationError(error, "Save cancelled.");
+    return false;
+  }
 }
 
-function loadExpenses() {
-  const storedExpenses = localStorage.getItem(STORAGE_KEY);
-  if (!storedExpenses) {
-    return [];
+function renderFileStatus(message) {
+  if (message) {
+    fileStatusElement.textContent = message;
+    return;
   }
 
-  try {
-    return JSON.parse(storedExpenses);
-  } catch (error) {
-    console.error("Unable to read saved expenses.", error);
-    return [];
+  if (activeFileName) {
+    fileStatusElement.textContent = supportsFileSystemAccess()
+      ? `Working file: ${activeFileName}`
+      : `Imported file: ${activeFileName}. Saving will download a fresh JSON file.`;
+    return;
   }
+
+  fileStatusElement.textContent = supportsFileSystemAccess()
+    ? "No file selected yet. Open a JSON file or save once to create one."
+    : "No file selected yet. Open a JSON file or save to download one.";
+}
+
+function supportsFileSystemAccess() {
+  return typeof window.showOpenFilePicker === "function" && typeof window.showSaveFilePicker === "function";
+}
+
+async function saveExpensesToHandle(forcePicker = false) {
+  if (forcePicker || !fileHandle) {
+    fileHandle = await window.showSaveFilePicker({
+      suggestedName: getDownloadFileName(),
+      types: [getJsonPickerType()],
+      excludeAcceptAllOption: true
+    });
+  }
+
+  activeFileName = fileHandle.name;
+
+  const writable = await fileHandle.createWritable();
+  await writable.write(JSON.stringify(expenses, null, 2));
+  await writable.close();
+}
+
+async function readExpensesFromHandle(handle) {
+  const file = await handle.getFile();
+  const text = await file.text();
+  return parseExpensesJson(text);
+}
+
+function parseExpensesJson(text) {
+  const parsed = JSON.parse(text || "[]");
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function downloadExpensesFile() {
+  const blob = new Blob([JSON.stringify(expenses, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = getDownloadFileName();
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getJsonPickerType() {
+  return {
+    description: "Expense Tracker JSON",
+    accept: {
+      "application/json": [".json"]
+    }
+  };
+}
+
+function getDownloadFileName() {
+  if (activeFileName) {
+    return activeFileName;
+  }
+
+  return `expenses-${getTodayInputValue()}.json`;
+}
+
+function handleFileOperationError(error, fallbackMessage) {
+  if (error && error.name === "AbortError") {
+    renderFileStatus(fallbackMessage);
+    return;
+  }
+
+  console.error(error);
+  renderFileStatus("File access failed. Try again or use another JSON file.");
 }
 
 function formatCurrency(amount) {

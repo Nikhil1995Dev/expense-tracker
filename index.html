@@ -23,7 +23,15 @@
           <span class="hero-badge">Live</span>
         </div>
         <p class="hero-card-value" id="heroTotal">Rs 0.00</p>
-        <p class="hero-card-note">Your data stays saved in this browser.</p>
+        <p class="hero-card-note">Open a JSON file to work from disk, then save changes back to that file or export a new one.</p>
+        <div class="file-controls">
+          <div class="file-actions">
+            <button type="button" class="btn btn-secondary" id="openFileButton">Open JSON</button>
+            <button type="button" class="btn btn-primary" id="saveFileButton">Save JSON</button>
+          </div>
+          <p class="file-status" id="fileStatus">No file selected yet.</p>
+          <input id="importFileInput" type="file" accept="application/json,.json" class="hidden">
+        </div>
         <div class="hero-card-grid">
           <div>
             <span class="mini-label">Entries</span>
